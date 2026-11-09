@@ -1,26 +1,56 @@
 #pragma once
+
+#include <iostream>
 #include <string>
 
 class Account {
 private:
-    inline static int counter = 1000;
+
     std::string accountNumber;
     std::string customerId;
     double balance;
 
+    // Generate unique account numbers
+    static std::string generateAccountNumber() {
+        static int counter = 1000;
+
+        return "ACC" + std::to_string(counter++);
+    }
+
 protected:
-    void setBalance(double b) { balance = b; }
+
+    void setBalance(double b) {
+        balance = b;
+    }
 
 public:
+
+    // Constructor
     Account(const std::string& custId, double openingBalance)
-        : accountNumber("ACC" + std::to_string(++counter)),
-          customerId(custId), balance(openingBalance) {}
+        : accountNumber(generateAccountNumber()),
+          customerId(custId),
+          balance(openingBalance) {
+    }
 
-    virtual ~Account() {}
+    // Virtual destructor
+    virtual ~Account() {
+    }
 
-    std::string getAccountNumber() const { return accountNumber; }
-    std::string getCustomerId() const { return customerId; }
-    double getBalance() const { return balance; }
+    // Get account number
+    std::string getAccountNumber() const {
+        return accountNumber;
+    }
 
+    // Get customer ID
+    std::string getCustomerId() const {
+        return customerId;
+    }
+
+    // Get balance
+    double getBalance() const {
+        return balance;
+    }
+
+    // Pure virtual function
     virtual std::string getAccountType() const = 0;
 };
