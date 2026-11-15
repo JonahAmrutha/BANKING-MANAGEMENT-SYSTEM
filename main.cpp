@@ -52,10 +52,6 @@ double readAmount(const std::string& prompt) {
     }
 }
 
-void comingSoon(const std::string& feature) {
-    std::cout << feature << " is not available yet (waiting for another module).\n";
-}
-
 // ---------- shared actions ----------
 
 void printAccount(const Account& acc, const Customer& owner) {
@@ -75,6 +71,66 @@ void updateCustomerFlow(AccountManager& manager, const std::string& customerId) 
     } else {
         std::cout << "Customer not found.\n";
     }
+}
+
+// Finds an account. If ownerId is not empty, the account must belong to that
+// customer (customers can only use their own accounts). Returns nullptr otherwise.
+Account* lookupAccount(AccountManager& manager, const std::string& accNo,
+                       const std::string& ownerId) {
+    Account* acc = manager.findAccount(accNo);
+    if (!acc) return nullptr;
+    if (!ownerId.empty() && acc->getCustomerId() != ownerId) return nullptr;
+    return acc;
+}
+
+void depositFlow(AccountManager& manager, const std::string& ownerId) {
+    Account* acc = lookupAccount(manager, readText("Account number: "), ownerId);
+    if (!acc) {
+        std::cout << "Account not found.\n";
+        return;
+    }
+    acc->deposit(readAmount("Deposit amount: "));
+    std::cout << "Deposit successful. New balance: " << acc->getBalance() << "\n";
+}
+
+void withdrawFlow(AccountManager& manager, const std::string& ownerId) {
+    Account* acc = lookupAccount(manager, readText("Account number: "), ownerId);
+    if (!acc) {
+        std::cout << "Account not found.\n";
+        return;
+    }
+    acc->withdraw(readAmount("Withdrawal amount: "));
+    std::cout << "Withdrawal successful. New balance: " << acc->getBalance()<< "\n";
+}
+
+void transferFlow(AccountManager& manager, const std::string& ownerId) {
+    std::string fromNo = readText("From account number: ");
+    if (!lookupAccount(manager, fromNo, ownerId)) {
+        std::cout << "Account not found.\n";
+        return;
+    }
+    std::string toNo = readText("To account number: ");
+    double amount = readAmount("Transfer amount: ");
+    manager.transfer(fromNo, toNo, amount);
+    std::cout << "Transfer successful.\n";
+}
+
+void historyFlow(AccountManager& manager, const std::string& ownerId) {
+    std::string accNo = readText("Account number: ");
+    if (!lookupAccount(manager, accNo, ownerId)) {
+        std::cout << "Account not found.\n";
+        return;
+    }
+    manager.showHistory(accNo);
+}
+
+void statementFlow(AccountManager& manager, const std::string& ownerId) {
+    std::string accNo = readText("Account number: ");
+    if (!lookupAccount(manager, accNo, ownerId)) {
+        std::cout << "Account not found.\n";
+        return;
+    }
+    manager.showStatement(accNo);
 }
 
 // ---------- admin ----------
@@ -134,6 +190,7 @@ void adminMenu(AccountManager& manager) {
                   << "7. Withdraw\n"
                   << "8. Transfer money\n"
                   << "9. Transaction history\n"
+                  << "10. Account statement and interest\n"
                   << "0. Logout\n";
         int choice = readChoice("Choice: ");
         try {
@@ -143,10 +200,11 @@ void adminMenu(AccountManager& manager) {
                 case 3: manager.viewCustomer(readText("Customer ID: ")); break;
                 case 4: updateCustomerFlow(manager, readText("Customer ID: ")); break;
                 case 5: searchAccountFlow(manager); break;
-                case 6: comingSoon("Deposit"); break;
-                case 7: comingSoon("Withdraw"); break;
-                case 8: comingSoon("Transfer"); break;
-                case 9: comingSoon("Transaction history"); break;
+                case 6: depositFlow(manager, ""); break;
+                case 7: withdrawFlow(manager, ""); break;
+                case 8: transferFlow(manager, ""); break;
+                case 9: historyFlow(manager, ""); break;
+                case 10: statementFlow(manager, ""); break;
                 case 0: return;
                 default: std::cout << "Invalid choice.\n";
             }
@@ -159,10 +217,8 @@ void adminMenu(AccountManager& manager) {
 // ---------- customer ----------
 
 void customerSearchFlow(AccountManager& manager, const std::string& customerId) {
-    std::string accNo = readText("Account number: ");
-    Account* acc = manager.findAccount(accNo);
-    // Customers may only see their own accounts.
-    if (!acc || acc->getCustomerId() != customerId) {
+    Account* acc = lookupAccount(manager, readText("Account number: "), customerId);
+    if (!acc) {
         std::cout << "Account not found.\n";
         return;
     }
@@ -180,6 +236,7 @@ void customerMenu(AccountManager& manager, const std::string& customerId) {
                   << "5. Withdraw\n"
                   << "6. Transfer money\n"
                   << "7. Transaction history\n"
+                  << "8. Account statement and interest\n"
                   << "0. Logout\n";
         int choice = readChoice("Choice: ");
         try {
@@ -187,10 +244,11 @@ void customerMenu(AccountManager& manager, const std::string& customerId) {
                 case 1: manager.viewCustomer(customerId); break;
                 case 2: updateCustomerFlow(manager, customerId); break;
                 case 3: customerSearchFlow(manager, customerId); break;
-                case 4: comingSoon("Deposit"); break;
-                case 5: comingSoon("Withdraw"); break;
-                case 6: comingSoon("Transfer"); break;
-                case 7: comingSoon("Transaction history"); break;
+                case 4: depositFlow(manager, customerId); break;
+                case 5: withdrawFlow(manager, customerId); break;
+                case 6: transferFlow(manager, customerId); break;
+                case 7: historyFlow(manager, customerId); break;
+                case 8: statementFlow(manager, customerId); break;
                 case 0: return;
                 default: std::cout << "Invalid choice.\n";
             }
