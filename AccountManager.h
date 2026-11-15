@@ -1,304 +1,198 @@
+#pragma once
+#include <cctype>
+#include <iomanip>
 #include <iostream>
+#include <map>
+#include <memory>
+#include <sstream>
 #include <string>
-#include "AccountManager.h"
+#include <utility>
+#include "BankException.h"
+#include "Customer.h"
+#include "SavingsAccount.h"
+#include "CurrentAccount.h"
 
-namespace {
+class AccountManager {
+private:
+    std::map<std::string, Customer> customers;
+    std::map<std::string, std::unique_ptr<Account>> accounts;
+    int customerCounter = 0;
 
-const std::string ADMIN_USER = "admin";
-const std::string ADMIN_PASS = "admin123";
-
-// ---------- input helpers ----------
-
-// Reads one line. Returns false when input has ended (EOF).
-bool readLine(const std::string& prompt, std::string& out) {
-    std::cout << prompt;
-    return static_cast<bool>(std::getline(std::cin, out));
-}
-
-// Returns the menu choice, -1 for invalid input, 0 when input has ended
-// (so every menu logs out / exits instead of looping forever).
-int readChoice(const std::string& prompt) {
-    std::string line;
-    if (!readLine(prompt, line)) return 0;
-    try {
-        std::size_t pos = 0;
-        int value = std::stoi(line, &pos);
-        if (pos != line.size()) return -1;
-        return value;
-    } catch (const std::exception&) {
-        return -1;
+    static bool isBlank(const std::string& s) {
+        for (unsigned char ch : s) {
+            if (!std::isspace(ch)) return false;
+        }
+        return true;
     }
-}
 
-// Reads a text field. Empty input is allowed (callers decide what that means).
-std::string readText(const std::string& prompt) {
-    std::string line;
-    if (!readLine(prompt, line)) return "";
-    return line;
-}
-
-double readAmount(const std::string& prompt) {
-    std::string line;
-    readLine(prompt, line);
-    try {
-        std::size_t pos = 0;
-        double value = std::stod(line, &pos);
-        if (pos != line.size()) throw BankException("Please enter a valid number");
-        return value;
-    } catch (const BankException&) {
-        throw;
-    } catch (const std::exception&) {
-        throw BankException("Please enter a valid number");
+    static bool isValidPhone(const std::string& p) {
+        if (p.size() != 10) return false;
+        for (unsigned char ch : p) {
+            if (!std::isdigit(ch)) return false;
+        }
+        return true;
     }
-}
 
-// ---------- shared actions ----------
-
-void printAccount(const Account& acc, const Customer& owner) {
-    std::cout << "Account Number: " << acc.getAccountNumber() << "\n"
-              << "Type: " << acc.getAccountType() << "\n"
-              << "Balance: " << acc.getBalance() << "\n"
-              << "Owner: " << owner.getName() << " (" << owner.getCustomerId() << ")\n";
-}
-
-void updateCustomerFlow(AccountManager& manager, const std::string& customerId) {
-    std::cout << "Leave a field blank to keep its current value.\n";
-    std::string name = readText("New name: ");
-    std::string phone = readText("New phone: ");
-    std::string address = readText("New address: ");
-    if (manager.updateCustomer(customerId, name, phone, address)) {
-        std::cout << "Customer details updated.\n";
-    } else {
-        std::cout << "Customer not found.\n";
+    static void validateName(const std::string& name) {
+        if (isBlank(name)) throw BankException("Name cannot be empty");
     }
-}
 
-// Finds an account. If ownerId is not empty, the account must belong to that
-// customer (customers can only use their own accounts). Returns nullptr otherwise.
-Account* lookupAccount(AccountManager& manager, const std::string& accNo,
-                       const std::string& ownerId) {
-    Account* acc = manager.findAccount(accNo);
-    if (!acc) return nullptr;
-    if (!ownerId.empty() && acc->getCustomerId() != ownerId) return nullptr;
-    return acc;
-}
-
-void depositFlow(AccountManager& manager, const std::string& ownerId) {
-    Account* acc = lookupAccount(manager, readText("Account number: "), ownerId);
-    if (!acc) {
-        std::cout << "Account not found.\n";
-        return;
+    static void validatePhone(const std::string& phone) {
+        if (!isValidPhone(phone)) throw BankException("Phone must be exactly 10 digits");
     }
-    acc->deposit(readAmount("Deposit amount: "));
-    std::cout << "Deposit successful. New balance: " << acc->getBalance() << "\n";
-}
 
-void withdrawFlow(AccountManager& manager, const std::string& ownerId) {
-    Account* acc = lookupAccount(manager, readText("Account number: "), ownerId);
-    if (!acc) {
-        std::cout << "Account not found.\n";
-        return;
+    static void validateAddress(const std::string& address) {
+        if (isBlank(address)) throw BankException("Address cannot be empty");
     }
-    acc->withdraw(readAmount("Withdrawal amount: "));
-    std::cout << "Withdrawal successful. New balance: " << acc->getBalance()<< "\n";
-}
 
-void transferFlow(AccountManager& manager, const std::string& ownerId) {
-    std::string fromNo = readText("From account number: ");
-    if (!lookupAccount(manager, fromNo, ownerId)) {
-        std::cout << "Account not found.\n";
-        return;
+    static std::string money(double v) {
+        std::ostringstream out;
+        out << std::fixed << std::setprecision(2) << v;
+        return out.str();
     }
-    std::string toNo = readText("To account number: ");
-    double amount = readAmount("Transfer amount: ");
-    manager.transfer(fromNo, toNo, amount);
-    std::cout << "Transfer successful.\n";
-}
 
-void historyFlow(AccountManager& manager, const std::string& ownerId) {
-    std::string accNo = readText("Account number: ");
-    if (!lookupAccount(manager, accNo, ownerId)) {
-        std::cout << "Account not found.\n";
-        return;
+public:
+    // Throws BankException if name, phone or address is invalid.
+    std::string registerCustomer(const std::string& name,
+                                 const std::string& phone,
+                                 const std::string& address) {
+        validateName(name);
+        validatePhone(phone);
+        validateAddress(address);
+        std::string id = "C" + std::to_string(++customerCounter);
+        customers.emplace(id, Customer(id, name, phone, address));
+        return id;
     }
-    manager.showHistory(accNo);
-}
 
-void statementFlow(AccountManager& manager, const std::string& ownerId) {
-    std::string accNo = readText("Account number: ");
-    if (!lookupAccount(manager, accNo, ownerId)) {
-        std::cout << "Account not found.\n";
-        return;
+    // Returns nullptr if the customer does not exist.
+    Customer* findCustomer(const std::string& id) {
+        auto it = customers.find(id);
+        return it == customers.end() ? nullptr : &it->second;
     }
-    manager.showStatement(accNo);
-}
 
-// ---------- admin ----------
-
-void registerCustomerFlow(AccountManager& manager) {
-    std::string name = readText("Name: ");
-    std::string phone = readText("Phone (10 digits): ");
-    std::string address = readText("Address: ");
-    std::string id = manager.registerCustomer(name, phone, address);
-    std::cout << "Customer registered. Customer ID: " << id << "\n";
-}
-
-void createAccountFlow(AccountManager& manager) {
-    std::string customerId = readText("Customer ID: ");
-    if (!manager.findCustomer(customerId)) {
-        std::cout << "Customer not found.\n";
-        return;
+    // Returns nullptr if the customer or type is unknown.
+    // Throws BankException if the opening balance is negative.
+    Account* createAccount(const std::string& customerId,
+                           const std::string& type, double openingBalance) {
+        if (!(openingBalance >= 0)) throw BankException("Opening balance cannot be negative");
+        if (!findCustomer(customerId)) return nullptr;
+        std::unique_ptr<Account> acc;
+        if (type == "Savings") acc = std::make_unique<SavingsAccount>(customerId, openingBalance);
+        else if (type == "Current") acc = std::make_unique<CurrentAccount>(customerId, openingBalance);
+        else return nullptr;
+        Account* raw = acc.get();
+        accounts[raw->getAccountNumber()] = std::move(acc);
+        return raw;
     }
-    int typeChoice = readChoice("Account type (1 = Savings, 2 = Current): ");
-    std::string type;
-    if (typeChoice == 1) type = "Savings";
-    else if (typeChoice == 2) type = "Current";
-    else {
-        std::cout << "Invalid account type.\n";
-        return;
-    }
-    double opening = readAmount("Opening balance: ");
-    Account* acc = manager.createAccount(customerId, type, opening);
-    if (acc) {
-        std::cout << type << " account created. Account Number: "
-                  << acc->getAccountNumber() << "\n";
-    } else {
-        std::cout << "Could not create account.\n";
-    }
-}
 
-void searchAccountFlow(AccountManager& manager) {
-    std::string accNo = readText("Account number: ");
-    Account* acc = manager.findAccount(accNo);
-    if (!acc) {
-        std::cout << "Account not found.\n";
-        return;
+    // Returns nullptr if the account does not exist.
+    Account* findAccount(const std::string& accNo) {
+        auto it = accounts.find(accNo);
+        return it == accounts.end() ? nullptr : it->second.get();
     }
-    Customer* owner = manager.findCustomer(acc->getCustomerId());
-    if (owner) printAccount(*acc, *owner);
-}
 
-void adminMenu(AccountManager& manager) {
-    while (true) {
-        std::cout << "\n===== ADMIN MENU =====\n"
-                  << "1. Register customer\n"
-                  << "2. Create account\n"
-                  << "3. View customer details\n"
-                  << "4. Update customer details\n"
-                  << "5. Search account\n"
-                  << "6. Deposit\n"
-                  << "7. Withdraw\n"
-                  << "8. Transfer money\n"
-                  << "9. Transaction history\n"
-                  << "10. Account statement and interest\n"
-                  << "0. Logout\n";
-        int choice = readChoice("Choice: ");
-        try {
-            switch (choice) {
-                case 1: registerCustomerFlow(manager); break;
-                case 2: createAccountFlow(manager); break;
-                case 3: manager.viewCustomer(readText("Customer ID: ")); break;
-                case 4: updateCustomerFlow(manager, readText("Customer ID: ")); break;
-                case 5: searchAccountFlow(manager); break;
-                case 6: depositFlow(manager, ""); break;
-                case 7: withdrawFlow(manager, ""); break;
-                case 8: transferFlow(manager, ""); break;
-                case 9: historyFlow(manager, ""); break;
-                case 10: statementFlow(manager, ""); break;
-                case 0: return;
-                default: std::cout << "Invalid choice.\n";
+    bool viewCustomer(const std::string& id) {
+        Customer* c = findCustomer(id);
+        if (!c) {
+            std::cout << "Customer not found\n";
+            return false;
+        }
+        std::cout << "ID: " << c->getCustomerId() << "\n"
+                  << "Name: " << c->getName() << "\n"
+                  << "Phone: " << c->getPhone() << "\n"
+                  << "Address: " << c->getAddress() << "\n"
+                  << "Accounts:\n";
+        for (const auto& entry : accounts) {
+            const Account* acc = entry.second.get();
+            if (acc->getCustomerId() == id) {
+                std::cout << "  " << acc->getAccountNumber() << " "
+                          << acc->getAccountType() << " "
+                          << acc->getBalance() << "\n";
             }
-        } catch (const BankException& e) {
-            std::cout << "Error: " << e.what() << "\n";
         }
+        return true;
     }
-}
 
-// ---------- customer ----------
-
-void customerSearchFlow(AccountManager& manager, const std::string& customerId) {
-    Account* acc = lookupAccount(manager, readText("Account number: "), customerId);
-    if (!acc) {
-        std::cout << "Account not found.\n";
-        return;
+    // Empty string = leave that field unchanged.
+    // Returns false if the customer does not exist.
+    // Throws BankException if a non-empty value is invalid; nothing is changed in that case.
+    bool updateCustomer(const std::string& id, const std::string& name,
+                        const std::string& phone, const std::string& address) {
+        Customer* c = findCustomer(id);
+        if (!c) return false;
+        if (!name.empty()) validateName(name);
+        if (!phone.empty()) validatePhone(phone);
+        if (!address.empty()) validateAddress(address);
+        if (!name.empty()) c->setName(name);
+        if (!phone.empty()) c->setPhone(phone);
+        if (!address.empty()) c->setAddress(address);
+        return true;
     }
-    Customer* owner = manager.findCustomer(customerId);
-    if (owner) printAccount(*acc, *owner);
-}
 
-void customerMenu(AccountManager& manager, const std::string& customerId) {
-    while (true) {
-        std::cout << "\n===== CUSTOMER MENU =====\n"
-                  << "1. View my details and accounts\n"
-                  << "2. Update my details\n"
-                  << "3. Search my account\n"
-                  << "4. Deposit\n"
-                  << "5. Withdraw\n"
-                  << "6. Transfer money\n"
-                  << "7. Transaction history\n"
-                  << "8. Account statement and interest\n"
-                  << "0. Logout\n";
-        int choice = readChoice("Choice: ");
-        try {
-            switch (choice) {
-                case 1: manager.viewCustomer(customerId); break;
-                case 2: updateCustomerFlow(manager, customerId); break;
-                case 3: customerSearchFlow(manager, customerId); break;
-                case 4: depositFlow(manager, customerId); break;
-                case 5: withdrawFlow(manager, customerId); break;
-                case 6: transferFlow(manager, customerId); break;
-                case 7: historyFlow(manager, customerId); break;
-                case 8: statementFlow(manager, customerId); break;
-                case 0: return;
-                default: std::cout << "Invalid choice.\n";
+    // Moves money between two accounts. Throws BankException if either account
+    // is missing, both are the same, or the amount breaks the sender's rules.
+    // Nothing changes if it throws.
+    void transfer(const std::string& fromNo, const std::string& toNo, double amount) {
+        Account* from = findAccount(fromNo);
+        Account* to = findAccount(toNo);
+        if (!from || !to) throw BankException("Account not found");
+        if (from == to) throw BankException("Cannot transfer to the same account");
+        from->checkWithdraw(amount);  // validate first so a failure changes nothing
+        from->transferOut(amount, toNo);
+        to->transferIn(amount, fromNo);
+    }
+
+    bool showHistory(const std::string& accNo) {
+        Account* acc = findAccount(accNo);
+        if (!acc) {
+            std::cout << "Account not found\n";
+            return false;
+        }
+        const auto& history = acc->getHistory();
+        std::cout << "===== TRANSACTION HISTORY: " << accNo << " =====\n";
+        if (history.empty()) {
+            std::cout << "No transactions yet.\n";
+            return true;
+        }
+        for (const auto& t : history) {
+            std::cout << t.getId() << " | " << t.getType() << " | "
+                      << money(t.getAmount());
+            if (!t.getOtherAccount().empty()) {
+                std::cout << (t.getType() == "Transfer Out" ? " to " : " from ")
+                          << t.getOtherAccount();
             }
-        } catch (const BankException& e) {
-            std::cout << "Error: " << e.what() << "\n";
+            std::cout << " | Balance: " << money(t.getBalanceAfter()) << "\n";
         }
+        return true;
     }
-}
 
-// ---------- login ----------
-
-void adminLogin(AccountManager& manager) {
-    std::string user = readText("Admin username: ");
-    std::string pass = readText("Admin password: ");
-    if (user == ADMIN_USER && pass == ADMIN_PASS) {
-        adminMenu(manager);
-    } else {
-        std::cout << "Invalid admin credentials.\n";
-    }
-}
-
-// A customer logs in with their Customer ID and their registered phone number.
-void customerLogin(AccountManager& manager) {
-    std::string id = readText("Customer ID: ");
-    std::string phone = readText("Phone number: ");
-    Customer* c = manager.findCustomer(id);
-    if (c && c->getPhone() == phone) {
-        std::cout << "Welcome, " << c->getName() << "!\n";
-        customerMenu(manager, id);
-    } else {
-        std::cout << "Invalid customer ID or phone number.\n";
-    }
-}
-
-}  // namespace
-
-int main() {
-    AccountManager manager;
-
-    while (true) {
-        std::cout << "\n===== BANKING MANAGEMENT SYSTEM =====\n"
-                  << "1. Admin login\n"
-                  << "2. Customer login\n"
-                  << "0. Exit\n";
-        int choice = readChoice("Choice: ");
-        switch (choice) {
-            case 1: adminLogin(manager); break;
-            case 2: customerLogin(manager); break;
-            case 0: std::cout << "Goodbye.\n"; return 0;
-            default: std::cout << "Invalid choice.\n";
+    bool showStatement(const std::string& accNo) {
+        Account* acc = findAccount(accNo);
+        if (!acc) {
+            std::cout << "Account not found\n";
+            return false;
         }
+        double deposits = 0, withdrawals = 0, sent = 0, received = 0;
+        for (const auto& t : acc->getHistory()) {
+            if (t.getType() == "Deposit") deposits += t.getAmount();
+            else if (t.getType() == "Withdrawal") withdrawals += t.getAmount();
+            else if (t.getType() == "Transfer Out") sent += t.getAmount();
+            else if (t.getType() == "Transfer In") received += t.getAmount();
+        }
+        Customer* owner = findCustomer(acc->getCustomerId());
+        std::cout << "===== ACCOUNT STATEMENT =====\n"
+                  << "Account Number: " << acc->getAccountNumber() << "\n"
+                  << "Type: " << acc->getAccountType() << "\n"
+                  << "Owner: " << (owner ? owner->getName() : "unknown") << "\n"
+                  << "Current Balance: " << money(acc->getBalance()) << "\n"
+                  << "Minimum Balance: " << money(acc->getMinimumBalance()) << "\n"
+                  << "Total Deposits: " << money(deposits) << "\n"
+                  << "Total Withdrawals: " << money(withdrawals) << "\n"
+                  << "Transfers Sent: " << money(sent) << "\n"
+                  << "Transfers Received: " << money(received) << "\n"
+                  << "Interest Rate: " << money(acc->getInterestRate()) << "% per year\n"
+                  << "Interest for 1 year: " << money(acc->calculateInterest(1)) << "\n";
+        showHistory(accNo);
+        return true;
     }
-}
+};
