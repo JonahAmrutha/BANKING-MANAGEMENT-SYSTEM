@@ -1,8 +1,10 @@
 #pragma once
 #include <cctype>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <utility>
 #include "BankException.h"
@@ -41,6 +43,12 @@ private:
 
     static void validateAddress(const std::string& address) {
         if (isBlank(address)) throw BankException("Address cannot be empty");
+    }
+
+    static std::string money(double v) {
+        std::ostringstream out;
+        out << std::fixed << std::setprecision(2) << v;
+        return out.str();
     }
 
 public:
@@ -118,6 +126,73 @@ public:
         if (!name.empty()) c->setName(name);
         if (!phone.empty()) c->setPhone(phone);
         if (!address.empty()) c->setAddress(address);
+        return true;
+    }
+
+    // Moves money between two accounts. Throws BankException if either account
+    // is missing, both are the same, or the amount breaks the sender's rules.
+    // Nothing changes if it throws.
+    void transfer(const std::string& fromNo, const std::string& toNo, double amount) {
+        Account* from = findAccount(fromNo);
+        Account* to = findAccount(toNo);
+        if (!from || !to) throw BankException("Account not found");
+        if (from == to) throw BankException("Cannot transfer to the same account");
+        from->checkWithdraw(amount);  // validate first so a failure changes nothing
+        from->transferOut(amount, toNo);
+        to->transferIn(amount, fromNo);
+    }
+
+    bool showHistory(const std::string& accNo) {
+        Account* acc = findAccount(accNo);
+        if (!acc) {
+            std::cout << "Account not found\n";
+            return false;
+        }
+        const auto& history = acc->getHistory();
+        std::cout << "===== TRANSACTION HISTORY: " << accNo << " =====\n";
+        if (history.empty()) {
+            std::cout << "No transactions yet.\n";
+            return true;
+        }
+        for (const auto& t : history) {
+            std::cout << t.getId() << " | " << t.getType() << " | "
+                      << money(t.getAmount());
+            if (!t.getOtherAccount().empty()) {
+                std::cout << (t.getType() == "Transfer Out" ? " to " : " from ")
+                          << t.getOtherAccount();
+            }
+            std::cout << " | Balance: " << money(t.getBalanceAfter()) << "\n";
+        }
+        return true;
+    }
+
+    bool showStatement(const std::string& accNo) {
+        Account* acc = findAccount(accNo);
+        if (!acc) {
+            std::cout << "Account not found\n";
+            return false;
+        }
+        double deposits = 0, withdrawals = 0, sent = 0, received = 0;
+        for (const auto& t : acc->getHistory()) {
+            if (t.getType() == "Deposit") deposits += t.getAmount();
+            else if (t.getType() == "Withdrawal") withdrawals += t.getAmount();
+            else if (t.getType() == "Transfer Out") sent += t.getAmount();
+            else if (t.getType() == "Transfer In") received += t.getAmount();
+        }
+        Customer* owner = findCustomer(acc->getCustomerId());
+        std::cout << "===== ACCOUNT STATEMENT =====\n"
+                  << "Account Number: " << acc->getAccountNumber() << "\n"
+                  << "Type: " << acc->getAccountType() << "\n"
+                  << "Owner: " << (owner ? owner->getName() : "unknown") << "\n"
+                  << "Current Balance: " << money(acc->getBalance()) << "\n"
+                  << "Minimum Balance: " << money(acc->getMinimumBalance()) << "\n"
+                  << "Total Deposits: " << money(deposits) << "\n"
+                  << "Total Withdrawals: " << money(withdrawals) << "\n"
+                  << "Transfers Sent: " << money(sent) << "\n"
+                  << "Transfers Received: " << money(received) << "\n"
+                  << "Interest Rate: " << money(acc->getInterestRate()) << "% per year\n"
+                  << "Interest for 1 year: " << money(acc->calculateInterest(1)) << "\n";
+        showHistory(accNo);
         return true;
     }
 };
