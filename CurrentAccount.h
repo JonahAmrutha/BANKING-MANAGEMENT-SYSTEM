@@ -7,4 +7,6 @@ public:
         : Account(custId, openingBalance) {}
 
     std::string getAccountType() const override { return "Current"; }
+    double getMinimumBalance() const override { return 0.0; }
+    double getInterestRate() const override { return 0.0; }
 };
